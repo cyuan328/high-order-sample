@@ -1,6 +1,6 @@
-## A PyTorch implementation of GraphSAGE
+## High-order sampling strategy based on GraphSAGE
 
-This package contains a PyTorch implementation of [GraphSAGE](http://snap.stanford.edu/graphsage/).
+This package contains a PyTorch implementation of high-order sampling method on GraphSAGE.
 
 ## Environment settings
 
