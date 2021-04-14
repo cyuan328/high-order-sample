@@ -5,9 +5,9 @@ import argparse
 import pyhocon
 import random
 
-from src.dataCenter import *
-from src.utils import *
-from src.models import *
+from dataCenter import *
+from utils import *
+from models import *
 
 parser = argparse.ArgumentParser(description='pytorch version of GraphSAGE')
 
