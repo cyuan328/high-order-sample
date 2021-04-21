@@ -168,9 +168,10 @@ class UnsupervisedLoss(object):
 
 	def _run_random_walks(self, nodes):
 		for node in nodes:
-			if len(self.adj_lists[int(node)]) == 0:
-				continue
 			cur_pairs = []
+			if len(self.adj_lists[int(node)]) == 0:
+				self.node_positive_pairs[node] = cur_pairs
+				continue
 			for i in range(self.N_WALKS):
 				curr_node = node
 				for j in range(self.WALK_LEN):
@@ -310,6 +311,9 @@ class GraphSage(nn.Module):
 
 		if self.agg_func == 'MEAN':
 			num_neigh = mask.sum(1, keepdim=True)
+			for i in range(len(num_neigh)):
+				if num_neigh[i][0]==0:
+					num_neigh[i][0]=1
 			mask = mask.div(num_neigh).to(embed_matrix.device)
 			aggregate_feats = mask.mm(embed_matrix)
 

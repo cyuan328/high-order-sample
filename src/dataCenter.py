@@ -182,14 +182,15 @@ class DataCenter(object):
 
 	def transferRedditData2AdjNPZ(self, G, dataset_dir):
 		# G = json_graph.node_link_graph(json.load(open(dataset_dir + "/reddit-G.json")))
-		feat_id_map = json.load(open(dataset_dir + "/reddit-id_map.json"))
-		feat_id_map = {id: val for id, val in feat_id_map.items()}
+		# feat_id_map = json.load(open(dataset_dir + "/reddit-id_map.json"))
+		# feat_id_map = {id: val for id, val in feat_id_map.items()}
 		labels = json.load(open(dataset_dir + "/reddit-class_map.json"))
 		ids = list(labels.keys())
 		vals = list(labels.values())
 
 		adj_lists = defaultdict(set)
-		[adj_lists[feat_id_map[id]].add('') for id in ids]
+		# [adj_lists[feat_id_map[id]].add('') for id in ids]
+		[adj_lists[id].add('') for id in ids]
 		with open(dataset_dir + "/reddit-adjlist.txt") as fp:
 			for line in fp:
 				if '#' in line:
@@ -197,9 +198,12 @@ class DataCenter(object):
 				info = line.strip().split()
 				# if info[0] in G.nodes():
 				for inf in info[1:]:
-					adj_lists[feat_id_map[info[0]]].add(feat_id_map[inf])
-					adj_lists[feat_id_map[inf]].add(feat_id_map[info[0]])
-		[adj_lists[feat_id_map[id]].remove('') for id in ids]
+					# adj_lists[feat_id_map[info[0]]].add(feat_id_map[inf])
+					# adj_lists[feat_id_map[inf]].add(feat_id_map[info[0]])
+					adj_lists[info[0]].add(inf)
+					adj_lists[inf].add(info[0])
+		# [adj_lists[feat_id_map[id]].remove('') for id in ids]
+		[adj_lists[id].remove('') for id in ids]
 		np.savez(dataset_dir + "reddit_adj.npz", adj_lists)
 
 		# adj = dict.fromkeys(list(G.nodes()))
