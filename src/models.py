@@ -197,7 +197,6 @@ class SageLayer(nn.Module):
 		self.input_size = input_size
 		self.out_size = out_size
 
-
 		self.gcn = gcn
 		self.weight = nn.Parameter(torch.FloatTensor(out_size, self.input_size if self.gcn else 2 * self.input_size))
 
@@ -217,6 +216,7 @@ class SageLayer(nn.Module):
 			combined = torch.cat([self_feats, aggregate_feats], dim=1)
 		else:
 			combined = aggregate_feats
+		combined = combined.to(self.weight.device)
 		combined = F.relu(self.weight.mm(combined.t())).t()
 		return combined
 

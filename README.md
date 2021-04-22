@@ -19,7 +19,7 @@ This package contains a PyTorch implementation of high-order sampling method on 
 --seed        Random seed. (default: 824)
 --unsup_loss  The loss function for unsupervised learning. ('margin' or 'normal', default: normal)
 --config      Config file. (default: ./src/experiments.conf)
---cuda        Use GPU if declared.
+--cuda        GPU ids (use CPU if not declared). (default: 0)
 ```
 
 **Learning Method**
@@ -30,6 +30,6 @@ The user can specify a learning method by --learn_method, 'sup' is for supervise
 
 To run the unsupervised model on Cuda:
 ```
-python main.py --epochs 50 --dataSet reddit --learn_method unsup --cuda
+python main.py --epochs 50 --dataSet reddit --learn_method unsup --cuda 0
 ```
 
