@@ -1,193 +1,259 @@
+import pickle as pkl
 import sys
+import json
 import os
-import torch
-import random
-import math
-
-from sklearn.utils import shuffle
-from sklearn.metrics import f1_score
-
-import torch.nn as nn
+import networkx as nx
+from networkx.readwrite import json_graph
 import numpy as np
+import scipy.sparse as sp
+import torch
 
-def evaluate(dataCenter, ds, graphSage, classification, device, max_vali_f1, name, cur_epoch):
-	test_nodes = getattr(dataCenter, ds+'_test')
-	val_nodes = getattr(dataCenter, ds+'_val')
-	labels = getattr(dataCenter, ds+'_labels')
+from normalization import fetch_normalization, row_normalize
 
-	models = [graphSage, classification]
+datadir = "data"
 
-	params = []
-	for model in models:
-		for param in model.parameters():
-			if param.requires_grad:
-				param.requires_grad = False
-				params.append(param)
+def parse_index_file(filename):
+    """Parse index file."""
+    index = []
+    for line in open(filename):
+        index.append(int(line.strip()))
+    return index
 
-	embs = graphSage(val_nodes)
-	logists = classification(embs)
-	_, predicts = torch.max(logists, 1)
-	labels_val = labels[val_nodes]
-	assert len(labels_val) == len(predicts)
-	comps = zip(labels_val, predicts.data)
+def preprocess_citation(adj, features, normalization="FirstOrderGCN"):
+    adj_normalizer = fetch_normalization(normalization)
+    adj = adj_normalizer(adj)
+    features = row_normalize(features)
+    return adj, features
 
-	vali_f1 = f1_score(labels_val, predicts.cpu().data, average="micro")
-	print("Validation F1:", vali_f1)
+def sparse_mx_to_torch_sparse_tensor(sparse_mx):
+    """Convert a scipy sparse matrix to a torch sparse tensor."""
+    sparse_mx = sparse_mx.tocoo().astype(np.float32)
+    indices = torch.from_numpy(
+        np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
+    values = torch.from_numpy(sparse_mx.data)
+    shape = torch.Size(sparse_mx.shape)
+    return torch.sparse.FloatTensor(indices, values, shape)
 
-	if vali_f1 > max_vali_f1:
-		max_vali_f1 = vali_f1
-		embs = graphSage(test_nodes)
-		logists = classification(embs)
-		_, predicts = torch.max(logists, 1)
-		labels_test = labels[test_nodes]
-		assert len(labels_test) == len(predicts)
-		comps = zip(labels_test, predicts.data)
 
-		test_f1 = f1_score(labels_test, predicts.cpu().data, average="micro")
-		print("Test F1:", test_f1)
 
-		for param in params:
-			param.requires_grad = True
+def load_citation(dataset_str="cora", normalization="AugNormAdj", porting_to_torch=True,data_path=datadir, task_type="full"):
+    """
+    Load Citation Networks Datasets.
+    """
+    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
+    objects = []
+    for i in range(len(names)):
+        with open(os.path.join(data_path, "ind.{}.{}".format(dataset_str.lower(), names[i])), 'rb') as f:
+            if sys.version_info > (3, 0):
+                objects.append(pkl.load(f, encoding='latin1'))
+            else:
+                objects.append(pkl.load(f))
 
-		torch.save(models, 'models/model_best_{}_ep{}_{:.4f}.torch'.format(name, cur_epoch, test_f1))
+    x, y, tx, ty, allx, ally, graph = tuple(objects)
+    test_idx_reorder = parse_index_file(os.path.join(data_path, "ind.{}.test.index".format(dataset_str)))
+    test_idx_range = np.sort(test_idx_reorder)
 
-	for param in params:
-		param.requires_grad = True
+    if dataset_str == 'citeseer':
+        # Fix citeseer dataset (there are some isolated nodes in the graph)
+        # Find isolated nodes, add them as zero-vecs into the right position
+        test_idx_range_full = range(min(test_idx_reorder), max(test_idx_reorder)+1)
+        tx_extended = sp.lil_matrix((len(test_idx_range_full), x.shape[1]))
+        tx_extended[test_idx_range-min(test_idx_range), :] = tx
+        tx = tx_extended
+        ty_extended = np.zeros((len(test_idx_range_full), y.shape[1]))
+        ty_extended[test_idx_range-min(test_idx_range), :] = ty
+        ty = ty_extended
 
-	return max_vali_f1
+    features = sp.vstack((allx, tx)).tolil()
+    features[test_idx_reorder, :] = features[test_idx_range, :]
+    G = nx.from_dict_of_lists(graph)
+    adj = nx.adjacency_matrix(G)
+    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
+    # degree = np.asarray(G.degree)
+    degree = np.sum(adj, axis=1)
 
-def get_gnn_embeddings(gnn_model, dataCenter, ds):
-    print('Loading embeddings from trained GraphSAGE model.')
-    features = np.zeros((len(getattr(dataCenter, ds+'_labels')), gnn_model.out_size))
-    nodes = np.arange(len(getattr(dataCenter, ds+'_labels'))).tolist()
-    b_sz = 500
-    batches = math.ceil(len(nodes) / b_sz)
-    embs = []
-    for index in range(batches):
-        nodes_batch = nodes[index*b_sz:(index+1)*b_sz]
-        embs_batch = gnn_model(nodes_batch)
-        assert len(embs_batch) == len(nodes_batch)
-        embs.append(embs_batch)
-        # if ((index+1)*b_sz) % 10000 == 0:
-        #     print(f'Dealed Nodes [{(index+1)*b_sz}/{len(nodes)}]')
+    labels = np.vstack((ally, ty))
+    labels[test_idx_reorder, :] = labels[test_idx_range, :]
+    
+    if task_type == "full":
+        print("Load full supervised task.")
+        #supervised setting
+        idx_test = test_idx_range.tolist()
+        idx_train = range(len(ally)- 500)
+        idx_val = range(len(ally) - 500, len(ally))
+    elif task_type == "semi":
+        print("Load semi-supervised task.")
+        #semi-supervised setting
+        idx_test = test_idx_range.tolist()
+        idx_train = range(len(y))
+        idx_val = range(len(y), len(y)+500)
+    else:
+        raise ValueError("Task type: %s is not supported. Available option: full and semi.")
 
-    assert len(embs) == batches
-    embs = torch.cat(embs, 0)
-    assert len(embs) == len(nodes)
-    print('Embeddings loaded.')
-    return embs.detach()
+    adj, features = preprocess_citation(adj, features, normalization)
+    features = np.array(features.todense())
+    labels = np.argmax(labels, axis=1)
+    # porting to pytorch
+    if porting_to_torch:
+        features = torch.FloatTensor(features).float()
+        labels = torch.LongTensor(labels)
+        # labels = torch.max(labels, dim=1)[1]
+        adj = sparse_mx_to_torch_sparse_tensor(adj).float()
+        idx_train = torch.LongTensor(idx_train)
+        idx_val = torch.LongTensor(idx_val)
+        idx_test = torch.LongTensor(idx_test)
+        degree = torch.LongTensor(degree)
+    learning_type = "transductive"
+    return adj, features, labels, idx_train, idx_val, idx_test, degree, learning_type
 
-def train_classification(dataCenter, graphSage, classification, ds, device, max_vali_f1, name, epochs=800):
-	print('Training Classification ...')
-	c_optimizer = torch.optim.SGD(classification.parameters(), lr=0.5)
-	# train classification, detached from the current graph
-	#classification.init_params()
-	b_sz = 50
-	train_nodes = getattr(dataCenter, ds+'_train')
-	labels = getattr(dataCenter, ds+'_labels')
-	features = get_gnn_embeddings(graphSage, dataCenter, ds)
-	for epoch in range(epochs):
-		train_nodes = shuffle(train_nodes)
-		batches = math.ceil(len(train_nodes) / b_sz)
-		visited_nodes = set()
-		for index in range(batches):
-			nodes_batch = train_nodes[index*b_sz:(index+1)*b_sz]
-			visited_nodes |= set(nodes_batch)
-			labels_batch = labels[nodes_batch]
-			embs_batch = features[nodes_batch]
+def sgc_precompute(features, adj, degree):
+    #t = perf_counter()
+    for i in range(degree):
+        features = torch.spmm(adj, features)
+    precompute_time = 0 #perf_counter()-t
+    return features, precompute_time
 
-			logists = classification(embs_batch)
-			loss = -torch.sum(logists[range(logists.size(0)), labels_batch], 0)
-			loss /= len(nodes_batch)
-			# print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Dealed Nodes [{}/{}] '.format(epoch+1, epochs, index, batches, loss.item(), len(visited_nodes), len(train_nodes)))
+def set_seed(seed, cuda):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if cuda: torch.cuda.manual_seed(seed)
 
-			loss.backward()
-			
-			nn.utils.clip_grad_norm_(classification.parameters(), 5)
-			c_optimizer.step()
-			c_optimizer.zero_grad()
 
-		max_vali_f1 = evaluate(dataCenter, ds, graphSage, classification, device, max_vali_f1, name, epoch)
-	return classification, max_vali_f1
+def loadRedditFromNPZ(dataset_dir=datadir):
+    # adj = np.load(dataset_dir+"reddit/reddit_adj.npz")
+    adj = sp.load_npz(dataset_dir+"reddit/reddit_adj.npz")
+    data = np.load(dataset_dir +"reddit/reddit.npz")
 
-def apply_model(dataCenter, ds, graphSage, classification, unsupervised_loss, b_sz, unsup_loss, device, learn_method):
-	test_nodes = getattr(dataCenter, ds+'_test')
-	val_nodes = getattr(dataCenter, ds+'_val')
-	train_nodes = getattr(dataCenter, ds+'_train')
-	labels = getattr(dataCenter, ds+'_labels')
+    return adj, data['feats'], data['y_train'], data['y_val'], data['y_test'], data['train_index'], data['val_index'], data['test_index']
 
-	if unsup_loss == 'margin':
-		num_neg = 6
-	elif unsup_loss == 'normal':
-		num_neg = 100
-	else:
-		print("unsup_loss can be only 'margin' or 'normal'.")
-		sys.exit(1)
 
-	train_nodes = shuffle(train_nodes)
+def load_reddit_data(normalization="AugNormAdj", porting_to_torch=True, data_path=datadir):
+    adj, features, y_train, y_val, y_test, train_index, val_index, test_index = loadRedditFromNPZ(data_path)
+    labels = np.zeros(adj.shape[0])
+    labels[train_index]  = y_train
+    labels[val_index]  = y_val
+    labels[test_index]  = y_test
+    adj = adj + adj.T + sp.eye(adj.shape[0])
+    train_adj = adj[train_index, :][:, train_index]
+    degree = np.sum(train_adj, axis=1)
 
-	models = [graphSage, classification]
-	params = []
-	for model in models:
-		for param in model.parameters():
-			if param.requires_grad:
-				params.append(param)
+    features = torch.FloatTensor(np.array(features))
+    features = (features-features.mean(dim=0))/features.std(dim=0)
+    train_features = torch.index_select(features, 0, torch.LongTensor(train_index))
+    if not porting_to_torch:
+        features = features.numpy()
+        train_features = train_features.numpy()
 
-	optimizer = torch.optim.SGD(params, lr=0.7)
-	optimizer.zero_grad()
-	for model in models:
-		model.zero_grad()
+    adj_normalizer = fetch_normalization(normalization)
+    adj = adj_normalizer(adj)
+    train_adj = adj_normalizer(train_adj)
 
-	batches = math.ceil(len(train_nodes) / b_sz)
+    if porting_to_torch:
+        train_adj = sparse_mx_to_torch_sparse_tensor(train_adj).float()
+        labels = torch.LongTensor(labels)
+        adj = sparse_mx_to_torch_sparse_tensor(adj).float()
+        degree = torch.LongTensor(degree)
+        train_index = torch.LongTensor(train_index)
+        val_index = torch.LongTensor(val_index)
+        test_index = torch.LongTensor(test_index)
+    learning_type = "inductive"
+    return adj, train_adj, features, train_features, labels, train_index, val_index, test_index, degree, learning_type
 
-	visited_nodes = set()
-	for index in range(batches):
-		nodes_batch = train_nodes[index*b_sz:(index+1)*b_sz]
 
-		# extend nodes batch for unspervised learning
-		# no conflicts with supervised learning
-		nodes_batch = np.asarray(list(unsupervised_loss.extend_nodes(nodes_batch, num_neg=num_neg)))
-		visited_nodes |= set(nodes_batch)
 
-		# get ground-truth for the nodes batch
-		labels_batch = labels[nodes_batch]
+def transferRedditData2AdjNPZ(G, dataset_dir):
+    # G = json_graph.node_link_graph(json.load(open(dataset_dir + "/reddit-G.json")))
+    feat_id_map = json.load(open(dataset_dir + "/reddit-id_map.json"))
+    feat_id_map = {id: val for id, val in feat_id_map.items()}
+    numNode = len(feat_id_map)
+    print(numNode)
 
-		# feed nodes batch to the graphSAGE
-		# returning the nodes embeddings
-		embs_batch = graphSage(nodes_batch)
+    adj = sp.lil_matrix((numNode, numNode))
+    print("no")
+    for edge in G.edges():
+        adj[feat_id_map[edge[0]], feat_id_map[edge[1]]] = 1
+    sp.save_npz(dataset_dir + "reddit_adj.npz", sp.coo_matrix(adj))
 
-		if learn_method == 'sup':
-			# superivsed learning
-			logists = classification(embs_batch)
-			loss_sup = -torch.sum(logists[range(logists.size(0)), labels_batch], 0)
-			loss_sup /= len(nodes_batch)
-			loss = loss_sup
-		elif learn_method == 'plus_unsup':
-			# superivsed learning
-			logists = classification(embs_batch)
-			loss_sup = -torch.sum(logists[range(logists.size(0)), labels_batch], 0)
-			loss_sup /= len(nodes_batch)
-			# unsuperivsed learning
-			if unsup_loss == 'margin':
-				loss_net = unsupervised_loss.get_loss_margin(embs_batch, nodes_batch)
-			elif unsup_loss == 'normal':
-				loss_net = unsupervised_loss.get_loss_sage(embs_batch, nodes_batch)
-			loss = loss_sup + loss_net
-		else:
-			if unsup_loss == 'margin':
-				loss_net = unsupervised_loss.get_loss_margin(embs_batch, nodes_batch)
-			elif unsup_loss == 'normal':
-				loss_net = unsupervised_loss.get_loss_sage(embs_batch, nodes_batch)
-			loss = loss_net
+    # adj_lists = defaultdict(set)
+    # ids = list(feat_id_map.keys())
+    # [adj_lists[feat_id_map[id]].add('') for id in ids]
+    # for edge in G.edges():
+    #     adj_lists[feat_id_map[edge[0]]].add(feat_id_map[edge[1]])
+    # [adj_lists[feat_id_map[id]].remove('') for id in ids]
+    # np.savez(dataset_dir + "reddit_adj.npz", adj_lists)
+    
 
-		print('Step [{}/{}], Loss: {:.4f}, Dealed Nodes [{}/{}] '.format(index+1, batches, loss.item(), len(visited_nodes), len(train_nodes)))
-		loss.backward()
-		for model in models:
-			nn.utils.clip_grad_norm_(model.parameters(), 5)
-		optimizer.step()
+def transferRedditDataFormat(G, dataset_dir):
+    # G = json_graph.node_link_graph(json.load(open(dataset_dir + "/reddit-G.json")))
+    labels = json.load(open(dataset_dir + "/reddit-class_map.json"))
 
-		optimizer.zero_grad()
-		for model in models:
-			model.zero_grad()
+    train_ids = [n for n in G.nodes() if not G.node[n]['val'] and not G.node[n]['test']]
+    test_ids = [n for n in G.nodes() if G.node[n]['test']]
+    val_ids = [n for n in G.nodes() if G.node[n]['val']]
+    train_labels = [labels[i] for i in train_ids]
+    test_labels = [labels[i] for i in test_ids]
+    val_labels = [labels[i] for i in val_ids]
+    # all_nodes = labels.keys()
+    all_labels = list(labels.values())
+    feats = np.load(dataset_dir + "/reddit-feats.npy")
 
-	return graphSage, classification
+    ## Logistic gets thrown off by big counts, so log transform num comments and score
+    feats[:, 0] = np.log(feats[:, 0] + 1.0)
+    feats[:, 1] = np.log(feats[:, 1] - min(np.min(feats[:, 1]), -1))
+    feat_id_map = json.load(open(dataset_dir + "reddit-id_map.json"))
+    feat_id_map = {id: val for id, val in feat_id_map.items()}
+
+    train_index = [feat_id_map[id] for id in train_ids]
+    val_index = [feat_id_map[id] for id in val_ids]
+    test_index = [feat_id_map[id] for id in test_ids]
+    np.savez(dataset_dir + "reddit.npz", feats=feats, labels=all_labels, y_train=train_labels, y_val=val_labels, y_test=test_labels,
+            train_index=train_index,
+            val_index=val_index, test_index=test_index)
+
+
+    
+def data_loader(dataset, data_path=datadir, normalization="AugNormAdj", porting_to_torch=True, task_type = "full"):
+    if dataset == "reddit":
+        reddit_dir = data_path+'reddit/'
+
+        # transfer to NPZ data 
+        if not os.path.exists(reddit_dir+"reddit.npz") or not os.path.exists(reddit_dir+"reddit_adj.npz"):
+        # if 1:
+            G = json_graph.node_link_graph(json.load(open(reddit_dir + "reddit-G.json")))
+
+            # Remove all nodes that do not have val/test annotations
+            # (necessary because of networkx weirdness with the Reddit data)
+            broken_count = 0
+            for node in list(G.nodes()):
+                # if not 'val' in G.node[node] or not 'test' in G.node[node]:
+                if not 'val' in G.node[node] or not 'test' in G.node[node]:
+                    G.remove_node(node)
+                    broken_count += 1
+            print("Removed {:d} nodes that lacked proper annotations due to networkx versioning issues".format(broken_count))
+
+            ## Make sure the graph has edge train_removed annotations
+            ## (some datasets might already have this..)
+            print("Loaded data... now preprocessing...")
+            for edge in G.edges():
+                if (G.node[edge[0]]['val'] or G.node[edge[1]]['val'] or
+                    G.node[edge[0]]['test'] or G.node[edge[1]]['test']):
+                    G[edge[0]][edge[1]]['train_removed'] = True
+                else:
+                    G[edge[0]][edge[1]]['train_removed'] = False
+
+            transferRedditDataFormat(G, reddit_dir)
+            transferRedditData2AdjNPZ(G, reddit_dir)
+        return load_reddit_data(normalization, porting_to_torch, data_path)
+    else:
+        (adj,
+         features,
+         labels,
+         idx_train,
+         idx_val,
+         idx_test,
+         degree,
+         learning_type) = load_citation(dataset, normalization, porting_to_torch, data_path, task_type)
+        train_adj = adj
+        train_features = features
+        return adj, train_adj, features, train_features, labels, idx_train, idx_val, idx_test, degree, learning_type
+
