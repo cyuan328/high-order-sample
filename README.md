@@ -1,6 +1,6 @@
 ## High-order sampling strategy based on GraphSAGE
 
-This package contains a PyTorch implementation of high-order sampling method on GraphSAGE.
+This package contains a PyTorch implementation of high-order sampling method on GNNs.
 
 ## Environment settings
 
