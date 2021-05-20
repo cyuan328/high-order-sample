@@ -4,6 +4,7 @@ import torch
 import scipy.sparse as sp
 from utils import data_loader, sparse_mx_to_torch_sparse_tensor
 from normalization import fetch_normalization
+from collections import Counter
 
 class Sampler:
     """Sampling the input graph data."""
@@ -19,7 +20,8 @@ class Sampler:
          self.idx_val,
          self.idx_test, 
          self.degree,
-         self.learning_type) = data_loader(dataset, data_path, "NoNorm", False, task_type)
+         self.learning_type,
+         self.fea_sum) = data_loader(dataset, data_path, "NoNorm", False, task_type)
         
         #convert some data to torch tensor ---- may be not the best practice here.
         self.features = torch.FloatTensor(self.features).float()
@@ -75,7 +77,6 @@ class Sampler:
         """
         Randomly drop edge and preserve percent% edges.
         """
-        "Opt here"
         if percent >= 1.0:
             return self.stub_sampler(normalization, cuda)
         
@@ -90,6 +91,98 @@ class Sampler:
         r_adj = self._preprocess_adj(normalization, r_adj, cuda)
         fea = self._preprocess_fea(self.train_features, cuda)
         return r_adj, fea
+
+
+
+    def pruning_sampler(self, percent, normalization, cuda):
+        """
+        Selectively prune edges by feature summation.
+        """
+        if percent >= 1.0:
+            return self.stub_sampler(normalization, cuda)
+
+        nodes = Counter(self.train_adj.row)
+        preserve_ind = []
+        col_start = 0
+        for n in nodes:
+            num_edge = nodes[n]
+            preserve_top = int(num_edge*percent)
+
+            edges = []
+            for i, e in enumerate(self.train_adj.col[col_start:col_start+num_edge]):
+                edges.append(self.fea_sum[e])
+
+            preserve_edges = np.array(edges).argsort()[::-1][0:preserve_top]
+            edges_ind = np.where(preserve_edges!=0, preserve_edges+col_start, preserve_edges)
+            
+            # edge_dict_sort = sorted(edge_dict.items(),key=lambda x:x[1])[::-1]
+            # edge_key = edge_dict_sort.keys()[0:preserve_edge]
+            preserve_ind.extend(edges_ind)
+            col_start += num_edge
+        
+        preserve_ind = np.array(preserve_ind)
+        r_adj = sp.coo_matrix((self.train_adj.data[preserve_ind],
+                               (self.train_adj.row[preserve_ind],
+                                self.train_adj.col[preserve_ind])),
+                              shape=self.train_adj.shape)
+        r_adj = self._preprocess_adj(normalization, r_adj, cuda)
+        fea = self._preprocess_fea(self.train_features, cuda)
+        
+        return r_adj, fea
+
+
+
+    def pruning_with_edgenum_sampler(self, percent, normalization, cuda):
+        """
+        Selectively prune edges by feature summation with number of edges (less edges, higher percent).
+        """
+        if percent >= 1.0:
+            return self.stub_sampler(normalization, cuda)
+
+        nodes = Counter(self.train_adj.row)
+        edges_num_max = max(nodes.values())
+        preserve_ind = []
+        col_start = 0
+        for n in nodes:
+            num_edge = nodes[n]
+            kslope = 1-num_edge/edges_num_max  #linear distribution
+            percent = percent + (1-percent)*kslope 
+            preserve_top = int(num_edge*percent)
+
+            edges = []
+            for i, e in enumerate(self.train_adj.col[col_start:col_start+num_edge]):
+                edges.append(self.fea_sum[e])
+
+            preserve_edges = np.array(edges).argsort()[::-1][0:preserve_top]
+            edges_ind = np.where(preserve_edges!=0, preserve_edges+col_start, preserve_edges)
+            
+            # edge_dict_sort = sorted(edge_dict.items(),key=lambda x:x[1])[::-1]
+            # edge_key = edge_dict_sort.keys()[0:preserve_edge]
+            preserve_ind.extend(edges_ind)
+            col_start += num_edge
+        
+        preserve_ind = np.array(preserve_ind)
+        r_adj = sp.coo_matrix((self.train_adj.data[preserve_ind],
+                               (self.train_adj.row[preserve_ind],
+                                self.train_adj.col[preserve_ind])),
+                              shape=self.train_adj.shape)
+        r_adj = self._preprocess_adj(normalization, r_adj, cuda)
+        fea = self._preprocess_fea(self.train_features, cuda)
+        
+        return r_adj, fea
+
+
+
+def pruning_with_layer_sampler(self, percent, normalization, cuda):
+        """
+        Selectively prune edges by feature summation with layer depth (deeper layer, lower percent).
+        """
+        if percent >= 1.0:
+            return self.stub_sampler(normalization, cuda)
+        
+        return r_adj, fea
+
+
 
     def vertex_sampler(self, percent, normalization, cuda):
         """

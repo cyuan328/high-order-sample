@@ -157,7 +157,9 @@ def load_reddit_data(normalization="AugNormAdj", porting_to_torch=True, data_pat
         val_index = torch.LongTensor(val_index)
         test_index = torch.LongTensor(test_index)
     learning_type = "inductive"
-    return adj, train_adj, features, train_features, labels, train_index, val_index, test_index, degree, learning_type
+    fea_sum = np.sum(np.fabs(train_features), axis=1)
+
+    return adj, train_adj, features, train_features, labels, train_index, val_index, test_index, degree, learning_type, fea_sum
 
 
 
@@ -255,5 +257,6 @@ def data_loader(dataset, data_path=datadir, normalization="AugNormAdj", porting_
          learning_type) = load_citation(dataset, normalization, porting_to_torch, data_path, task_type)
         train_adj = adj
         train_features = features
-        return adj, train_adj, features, train_features, labels, idx_train, idx_val, idx_test, degree, learning_type
+        fea_sum = np.sum(np.fabs(train_features))
+        return adj, train_adj, features, train_features, labels, idx_train, idx_val, idx_test, degree, learning_type, fea_sum
 

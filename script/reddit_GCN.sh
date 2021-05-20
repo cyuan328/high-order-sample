@@ -3,18 +3,18 @@
 python ./src/train_new.py \
     --debug \
     --datapath data// \
-    --seed 42 \
+    --seed 99 \
     --dataset reddit \
     --type mutigcn \
     --nhiddenlayer 1 \
     --nbaseblocklayer 2 \
     --hidden 128 \
-    # --epoch 400 \
-    --lr 0.009 \
-    --weight_decay 0.001 \
-    --early_stopping 400 \
+    --epoch 2000 \
+    --lr 0.01 \
+    --weight_decay 0 \
+    --early_stopping 1000 \
     --sampling_percent 0.05 \
-    --dropout 0.8 \
+    --dropout 0 \
     --normalization BingGeNormAdj \
     --withloop \
     --withbn

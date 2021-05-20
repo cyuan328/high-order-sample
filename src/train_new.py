@@ -242,7 +242,7 @@ for epoch in range(args.epochs):
     sampling_t = time.time()
     # no sampling
     # randomedge sampling if args.sampling_percent >= 1.0, it behaves the same as stub_sampler.
-    (train_adj, train_fea) = sampler.randomedge_sampler(percent=args.sampling_percent, normalization=args.normalization,
+    (train_adj, train_fea) = sampler.pruning_sampler(percent=args.sampling_percent, normalization=args.normalization,
                                                         cuda=args.cuda)
     if args.mixmode:
         train_adj = train_adj.cuda()
