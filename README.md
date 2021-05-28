@@ -15,7 +15,7 @@ To run the demo:
 All scripts of different models with parameters for Reddit, Cora, Citeseer and Pubmed are in `scripts` folder. You can reproduce the results by:
 ```
 pip install -r requirements.txt
-sh script/reddit_IncepGCN.sh
+sh reddit_IncepGCN.sh
 ```
 
 ## Data
