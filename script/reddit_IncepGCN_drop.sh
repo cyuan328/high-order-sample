@@ -7,7 +7,7 @@ python ./src/train_new.py \
     --dataset reddit \
     --type inceptiongcn \
     --nhiddenlayer 1 \
-    --nbaseblocklayer 16 \
+    --nbaseblocklayer 2 \
     --hidden 128 \
     --epoch 2000 \
     --lr 0.002 \

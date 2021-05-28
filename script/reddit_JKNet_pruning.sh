@@ -13,8 +13,8 @@ python ./src/train_new.py \
     --lr 0.004 \
     --weight_decay 5e-05 \
     --early_stopping 2000 \
-    --sampling_percent 1 \
+    --sampling_percent 0.6 \
     --dropout 0.3 \
     --normalization AugNormAdj \
     --withloop \
-    --sampling_method dropedge 
+    --sampling_method pruning 

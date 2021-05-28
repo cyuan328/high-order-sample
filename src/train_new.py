@@ -77,6 +77,8 @@ parser.add_argument("--nbaseblocklayer", type=int, default=1,
 parser.add_argument("--aggrmethod", default="default",
                     help="The aggrmethod for the layer aggreation. The options includes add and concat. Only valid in resgcn, densegcn and inecptiongcn")
 parser.add_argument("--task_type", default="full", help="The node classification task type (full and semi). Only valid for cora, citeseer and pubmed dataset.")
+parser.add_argument("--sampling_method", default="dropedge", help="The sampling method for high order sampler.")
+
 
 args = parser.parse_args()
 if args.debug:
@@ -242,7 +244,17 @@ for epoch in range(args.epochs):
     sampling_t = time.time()
     # no sampling
     # randomedge sampling if args.sampling_percent >= 1.0, it behaves the same as stub_sampler.
-    (train_adj, train_fea) = sampler.pruning_sampler(percent=args.sampling_percent, normalization=args.normalization,
+    if args.sampling_method == "pruning":
+        (train_adj, train_fea) = sampler.pruning_sampler(percent=args.sampling_percent, normalization=args.normalization,
+                                                        cuda=args.cuda)
+    elif args.sampling_method == "by_edge_num":
+        (train_adj, train_fea) = sampler.pruning_with_edgenum_sampler(percent=args.sampling_percent, normalization=args.normalization,
+                                                        cuda=args.cuda)
+    elif args.sampling_method == "by_layer_depth":
+        (train_adj, train_fea) = sampler.pruning_with_layer_sampler(percent=args.sampling_percent, normalization=args.normalization,
+                                                        cuda=args.cuda)
+    elif args.sampling_method == "dropedge":
+        (train_adj, train_fea) = sampler.randomedge_sampler(percent=args.sampling_percent, normalization=args.normalization,
                                                         cuda=args.cuda)
     if args.mixmode:
         train_adj = train_adj.cuda()

@@ -13,7 +13,7 @@ python ./src/train_new.py \
     --lr 0.01 \
     --weight_decay 0 \
     --early_stopping 2000 \
-    --sampling_percent 1 \
+    --sampling_percent 0.05 \
     --dropout 0 \
     --normalization BingGeNormAdj \
     --withloop \

@@ -7,15 +7,15 @@ python ./src/train_new.py \
     --dataset reddit \
     --type mutigcn \
     --nhiddenlayer 1 \
-    --nbaseblocklayer 6 \
+    --nbaseblocklayer 32 \
     --hidden 128 \
     --epoch 4000 \
     --lr 0.01 \
     --weight_decay 0 \
     --early_stopping 2000 \
-    --sampling_percent 1 \
+    --sampling_percent 0.2 \
     --dropout 0 \
     --normalization BingGeNormAdj \
     --withloop \
     --withbn \
-    --sampling_method dropedge 
+    --sampling_method pruning 

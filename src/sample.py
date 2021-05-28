@@ -173,7 +173,7 @@ class Sampler:
 
 
 
-def pruning_with_layer_sampler(self, percent, normalization, cuda):
+    def pruning_with_layer_sampler(self, percent, normalization, cuda):
         """
         Selectively prune edges by feature summation with layer depth (deeper layer, lower percent).
         """

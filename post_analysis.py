@@ -6,7 +6,7 @@ path = '.log/'
 acc_dict = {}
 
 for file in os.listdir(path):
-    dataset, net, drop_or_not, layers = settings = file.split('.txt')[0].split('_')
+    dataset, net, method, layers = settings = file.split('.txt')[0].split('_')
     text = open(path+file).readlines()
     acc_arr = []
 
@@ -17,6 +17,8 @@ for file in os.listdir(path):
     if acc_arr != []:
         acc_max = max(acc_arr)
         acc_dict[file] = acc_max  # add to acc max dict
+    else:
+        acc_dict[file] = 'oom'  # no results, out of memory
 
     # # draw the results
     # max_ind = acc_arr.index(acc_max)
