@@ -1,4 +1,9 @@
 
+command example
+
+```
+python main_SBMs_node_classification.py --dataset SBM_PATTERN --gpu_id 1 --seed 20 --config 'configs/SBMs_GraphTransformer_LapPE_PATTERN_500k_sparse_graph_LN.json'
+```
 
 # Graph Transformer Architecture
 

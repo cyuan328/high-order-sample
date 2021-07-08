@@ -2,6 +2,7 @@
 **/*.DS_Store
 **/*.ipynb_checkpoints/
 **/__pycache__
+.vscode/**
 out/
 
 gmail.py

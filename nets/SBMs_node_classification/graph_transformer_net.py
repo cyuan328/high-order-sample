@@ -4,6 +4,8 @@ import torch.nn.functional as F
 
 import dgl
 
+# 得到qkv 和 利用qkv计算attention 的这两个步骤解耦
+
 """
     Graph Transformer
     
@@ -47,10 +49,27 @@ class GraphTransformerNet(nn.Module):
         self.in_feat_dropout = nn.Dropout(in_feat_dropout)
         
         self.layers = nn.ModuleList([GraphTransformerLayer(hidden_dim, hidden_dim, num_heads,
-                                              dropout, self.layer_norm, self.batch_norm, self.residual) for _ in range(n_layers-1)])
-        self.layers.append(GraphTransformerLayer(hidden_dim, out_dim, num_heads, dropout, self.layer_norm, self.batch_norm,  self.residual))
+                                    dropout, self.layer_norm, self.batch_norm, self.residual) 
+                                    for _ in range(n_layers-1)])
+        # self.layers.append(GraphTransformerLayer(hidden_dim, out_dim, num_heads, dropout, self.layer_norm, self.batch_norm,  self.residual))
+        self.layers.append(GraphTransformerLayer(hidden_dim, hidden_dim, num_heads, dropout, self.layer_norm, self.batch_norm,  self.residual))
+        
+        # add fc here
+        self.FFN_layer1 = nn.Linear(out_dim, out_dim*2)
+        self.FFN_layer2 = nn.Linear(out_dim*2, out_dim)
+
+        if self.layer_norm:
+            self.layer_norm2 = nn.LayerNorm(out_dim)
+            
+        if self.batch_norm:
+            self.batch_norm2 = nn.BatchNorm1d(out_dim)
+
         self.MLP_layer = MLPReadout(out_dim, n_classes)
 
+
+        # self.Q = nn.Linear(hidden_dim, hidden_dim, bias=True)
+        # self.K = nn.Linear(hidden_dim, hidden_dim, bias=True)
+        # self.V = nn.Linear(hidden_dim, hidden_dim, bias=True)
 
     def forward(self, g, h, e, h_lap_pos_enc=None, h_wl_pos_enc=None):
 
@@ -63,11 +82,26 @@ class GraphTransformerNet(nn.Module):
             h_wl_pos_enc = self.embedding_wl_pos_enc(h_wl_pos_enc) 
             h = h + h_wl_pos_enc
         h = self.in_feat_dropout(h)
+
         
         # GraphTransformer Layers
         for conv in self.layers:
             h = conv(g, h)
+
+        h_in2 = h
+        h = self.FFN_layer1(h)
+        h = F.relu(h)
+        h = F.dropout(h, self.dropout, training=self.training)
+        h = self.FFN_layer2(h)
+
+        h = h_in2 + h # residual connection
+        
+        if self.layer_norm:
+            h = self.layer_norm2(h)
             
+        elif self.batch_norm:
+            h = self.batch_norm2(h)   
+
         # output
         h_out = self.MLP_layer(h)
 
