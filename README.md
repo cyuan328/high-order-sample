@@ -2,10 +2,15 @@
 command example
 
 ```
-python main_SBMs_node_classification.py --dataset SBM_PATTERN --gpu_id 1 --seed 20 --config 'configs/SBMs_GraphTransformer_LapPE_PATTERN_500k_sparse_graph_LN.json'
+python main_SBMs_node_classification.py --dataset SBM_PATTERN \
+         --gpu_id 1 --seed 20 \
+         --config 'configs/SBMs_GraphTransformer_LapPE_PATTERN_500k_sparse_graph_LN.json'
 ```
 
 # Graph Transformer Architecture
+ZINC 0.031+-0.006 (MAE) <br>
+CLUSTER 86.395+- 0.528  (accuracy) <br>
+PATTERN 71.125+- 11.977 (accuracy)<br>
 
 Source code for the paper "**[A Generalization of Transformer Networks to Graphs](https://arxiv.org/abs/2012.09699)**" by _[Vijay Prakash Dwivedi](https://github.com/vijaydwivedi75) and [Xavier Bresson](https://github.com/xbresson)_, at **AAAI'21 Workshop on Deep Learning on Graphs: Methods and Applications (DLG-AAAI'21)**.
 
