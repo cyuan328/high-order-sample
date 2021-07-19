@@ -65,13 +65,14 @@ class GraphTransformerNet(nn.Module):
             self.batch_norm2 = nn.BatchNorm1d(out_dim)
 
         self.MLP_layer = MLPReadout(out_dim, n_classes)
+        self.smooth_distances = []
 
 
         # self.Q = nn.Linear(hidden_dim, hidden_dim, bias=True)
         # self.K = nn.Linear(hidden_dim, hidden_dim, bias=True)
         # self.V = nn.Linear(hidden_dim, hidden_dim, bias=True)
 
-    def forward(self, g, h, e, h_lap_pos_enc=None, h_wl_pos_enc=None):
+    def forward(self, g, h, e, h_lap_pos_enc=None, h_wl_pos_enc=None, compute_dis=True):
 
         # input embedding
         h = self.embedding_h(h)
@@ -85,9 +86,14 @@ class GraphTransformerNet(nn.Module):
 
         
         # GraphTransformer Layers
-        for conv in self.layers:
-            h = conv(g, h)
-
+        if compute_dis:
+            self.smooth_distances = []
+            for conv in self.layers:
+                h, dis = conv.forward(g, h, compute_dis=True)
+                self.smooth_distances.append(dis)
+        else:
+            for conv in self.layers:
+                h = conv.forward(g, h, compute_dis=False)            
         h_in2 = h
         h = self.FFN_layer1(h)
         h = F.relu(h)

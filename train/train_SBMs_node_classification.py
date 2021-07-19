@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import math
 import dgl
-
+import numpy as np
 from train.metrics import accuracy_SBM as accuracy
 
 def train_epoch(model, optimizer, device, data_loader, epoch):
@@ -16,6 +16,8 @@ def train_epoch(model, optimizer, device, data_loader, epoch):
     epoch_train_acc = 0
     nb_data = 0
     gpu_mem = 0
+
+
     for iter, (batch_graphs, batch_labels) in enumerate(data_loader):
         batch_graphs = batch_graphs.to(device)
         batch_x = batch_graphs.ndata['feat'].to(device)  # num x feat
@@ -36,12 +38,14 @@ def train_epoch(model, optimizer, device, data_loader, epoch):
             batch_wl_pos_enc = None
 
         batch_scores = model.forward(batch_graphs, batch_x, batch_e, batch_lap_pos_enc, batch_wl_pos_enc)
-    
+
         loss = model.loss(batch_scores, batch_labels)
         loss.backward()
         optimizer.step()
         epoch_loss += loss.detach().item()
         epoch_train_acc += accuracy(batch_scores, batch_labels)
+    
+      
     epoch_loss /= (iter + 1)
     epoch_train_acc /= (iter + 1)
     
@@ -54,6 +58,11 @@ def evaluate_network(model, device, data_loader, epoch):
     epoch_test_loss = 0
     epoch_test_acc = 0
     nb_data = 0
+
+    
+    
+    avg_dis = []
+
     with torch.no_grad():
         for iter, (batch_graphs, batch_labels) in enumerate(data_loader):
             batch_graphs = batch_graphs.to(device)
@@ -71,9 +80,22 @@ def evaluate_network(model, device, data_loader, epoch):
                 batch_wl_pos_enc = None
                 
             batch_scores = model.forward(batch_graphs, batch_x, batch_e, batch_lap_pos_enc, batch_wl_pos_enc)
+            
+            # f = open('./PATTERN_smooth_distance.txt','a')  
+            f = open('./CLUSTER_smooth_distance.txt','a')  
+            dis = model.smooth_distances  # layer-wise distance
+            dis = [i.item() for i in dis]
+            if dis != []:
+                print("writing smooth_distances...")
+                dis = np.array(dis)
+                f.writelines(str(dis))
+            f.close() 
+
             loss = model.loss(batch_scores, batch_labels) 
             epoch_test_loss += loss.detach().item()
             epoch_test_acc += accuracy(batch_scores, batch_labels)
+        
+     
         epoch_test_loss /= (iter + 1)
         epoch_test_acc /= (iter + 1)
         

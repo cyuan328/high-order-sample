@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import dgl
 import dgl.function as fn
 import numpy as np
+import time
 
 """
     Graph Transformer Layer
@@ -57,6 +58,7 @@ class MultiHeadAttentionLayer(nn.Module):
         eids = g.edges()
         g.send_and_recv(eids, fn.src_mul_edge('V_h', 'score', 'V_h'), fn.sum('V_h', 'wV'))
         g.send_and_recv(eids, fn.copy_edge('score', 'score'), fn.sum('score', 'z'))
+        g.ndata['head'] = g.ndata['wV']/g.ndata['z']  # [num_nodes, hidden_dim, num_head]
     
     def forward(self, g, h):
         
@@ -72,9 +74,9 @@ class MultiHeadAttentionLayer(nn.Module):
         
         self.propagate_attention(g)
         
-        head_out = g.ndata['wV']/g.ndata['z']
+        # head_out = g.ndata['wV']/g.ndata['z']
         
-        return head_out
+        return g.ndata['head']
     
 
 class GraphTransformerLayer(nn.Module):
@@ -111,8 +113,50 @@ class GraphTransformerLayer(nn.Module):
             
         # if self.batch_norm:
         #     self.batch_norm2 = nn.BatchNorm1d(out_dim)
+    
+
+
+    # def compute_smooth(self, g, h):
         
-    def forward(self, g, h):
+    #     def compute_l2(src_field, dst_field, smooth_field):
+    #         def func(edges):
+    #         return {smooth_field: (compute_pair(edges.src[src_field], edges.dst[dst_field]))}
+    #     return func
+
+    #     g.apply_edges(compute_l2('head', 'head', 'head_smooth'))  # 'head_smooth' is a edge feature, scalar, R^(1)
+
+    #     eids = g.edges()
+    #     g.send_and_recv(eids, fn.src_mul_edge('V_h', 'score', 'V_h'), fn.sum('V_h', 'wV'))
+    #     g.send_and_recv(eids, fn.copy_edge('score', 'score'), fn.sum('score', 'z'))
+
+    #     import pdb;pdb.set_trace()
+    #     return ans
+
+    def compute_smooth(self, g, h):
+        def compute_pair(node1, node2):
+            tmp = node1/node1.norm(p=2) - node2/node2.norm(p=2)
+            return 0.5 * tmp.norm(p=2)
+
+        ans = 0
+        num_nodes = g.num_nodes()
+        
+        g.ndata['smooth_field'] = torch.zeros(num_nodes).cuda()
+        sum_times = torch.zeros(num_nodes).cuda()
+        
+        for node1, node2 in list(zip(g.edges()[0], g.edges()[1])):
+            
+            tmp_dis = compute_pair(g.ndata['head'][node1], g.ndata['head'][node2])
+            g.ndata['smooth_field'][node1] += tmp_dis
+            g.ndata['smooth_field'][node2] += tmp_dis
+            sum_times[node1] += 1
+            sum_times[node2] += 1
+        
+        for node in g.nodes():
+            ans += g.ndata['smooth_field'][node] / sum_times[node]
+        return ans/num_nodes
+
+    def forward(self, g, h, compute_dis=False):
+        # import pdb;pdb.set_trace()
         h_in1 = h # for first residual connection
     
         # multi-head attention out
@@ -133,6 +177,8 @@ class GraphTransformerLayer(nn.Module):
             h = self.batch_norm1(h)
         
         h_in2 = h # for second residual connection
+
+
         
         # FFN
         # h = self.FFN_layer1(h)
@@ -148,7 +194,9 @@ class GraphTransformerLayer(nn.Module):
             
         # if self.batch_norm:
         #     h = self.batch_norm2(h)       
-
+        if compute_dis:
+            dis = self.compute_smooth(g, h)
+            return h, dis
         return h
         
     def __repr__(self):

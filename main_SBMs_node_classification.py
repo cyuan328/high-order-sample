@@ -151,75 +151,85 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     test_loader = DataLoader(testset, batch_size=params['batch_size'], shuffle=False, collate_fn=dataset.collate)
         
     # At any point you can hit Ctrl + C to break out of training early.
-    try:
-        with tqdm(range(params['epochs'])) as t:
-            for epoch in t:
+    if not params['eval_only']:
+        try:
+            with tqdm(range(params['epochs'])) as t:
+                for epoch in t:
 
-                t.set_description('Epoch %d' % epoch)
+                    t.set_description('Epoch %d' % epoch)
 
-                start = time.time()
+                    start = time.time()
 
-                epoch_train_loss, epoch_train_acc, optimizer = train_epoch(model, optimizer, device, train_loader, epoch)
+                    epoch_train_loss, epoch_train_acc, optimizer = train_epoch(model, optimizer, device, train_loader, epoch)
+                        
+                    epoch_val_loss, epoch_val_acc = evaluate_network(model, device, val_loader, epoch)
+                    _, epoch_test_acc = evaluate_network(model, device, test_loader, epoch)        
                     
-                epoch_val_loss, epoch_val_acc = evaluate_network(model, device, val_loader, epoch)
-                _, epoch_test_acc = evaluate_network(model, device, test_loader, epoch)        
-                
-                epoch_train_losses.append(epoch_train_loss)
-                epoch_val_losses.append(epoch_val_loss)
-                epoch_train_accs.append(epoch_train_acc)
-                epoch_val_accs.append(epoch_val_acc)
+                    epoch_train_losses.append(epoch_train_loss)
+                    epoch_val_losses.append(epoch_val_loss)
+                    epoch_train_accs.append(epoch_train_acc)
+                    epoch_val_accs.append(epoch_val_acc)
 
-                writer.add_scalar('train/_loss', epoch_train_loss, epoch)
-                writer.add_scalar('val/_loss', epoch_val_loss, epoch)
-                writer.add_scalar('train/_acc', epoch_train_acc, epoch)
-                writer.add_scalar('val/_acc', epoch_val_acc, epoch)
-                writer.add_scalar('test/_acc', epoch_test_acc, epoch)
-                writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
+                    writer.add_scalar('train/_loss', epoch_train_loss, epoch)
+                    writer.add_scalar('val/_loss', epoch_val_loss, epoch)
+                    writer.add_scalar('train/_acc', epoch_train_acc, epoch)
+                    writer.add_scalar('val/_acc', epoch_val_acc, epoch)
+                    writer.add_scalar('test/_acc', epoch_test_acc, epoch)
+                    writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
 
-                t.set_postfix(time=time.time()-start, lr=optimizer.param_groups[0]['lr'],
-                              train_loss=epoch_train_loss, val_loss=epoch_val_loss,
-                              train_acc=epoch_train_acc, val_acc=epoch_val_acc,
-                              test_acc=epoch_test_acc)
+                    t.set_postfix(time=time.time()-start, lr=optimizer.param_groups[0]['lr'],
+                                train_loss=epoch_train_loss, val_loss=epoch_val_loss,
+                                train_acc=epoch_train_acc, val_acc=epoch_val_acc,
+                                test_acc=epoch_test_acc)
 
-                per_epoch_time.append(time.time()-start)
+                    per_epoch_time.append(time.time()-start)
 
-                # Saving checkpoint
-                ckpt_dir = os.path.join(root_ckpt_dir, "RUN_")
-                if not os.path.exists(ckpt_dir):
-                    os.makedirs(ckpt_dir)
-                torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
+                    # Saving checkpoint
+                    ckpt_dir = os.path.join(root_ckpt_dir, "RUN_")
+                    if not os.path.exists(ckpt_dir):
+                        os.makedirs(ckpt_dir)
+                    torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
 
-                files = glob.glob(ckpt_dir + '/*.pkl')
-                for file in files:
-                    epoch_nb = file.split('_')[-1]
-                    epoch_nb = int(epoch_nb.split('.')[0])
-                    if epoch_nb < epoch-1:
-                        os.remove(file)
+                    files = glob.glob(ckpt_dir + '/*.pkl')
+                    for file in files:
+                        epoch_nb = file.split('_')[-1]
+                        epoch_nb = int(epoch_nb.split('.')[0])
+                        if epoch_nb < epoch-1:
+                            os.remove(file)
 
-                scheduler.step(epoch_val_loss)
+                    scheduler.step(epoch_val_loss)
 
-                if optimizer.param_groups[0]['lr'] < params['min_lr']:
-                    print("\n!! LR SMALLER OR EQUAL TO MIN LR THRESHOLD.")
-                    break
-                    
-                # Stop training after params['max_time'] hours
-                if time.time()-start0 > params['max_time']*3600:
-                    print('-' * 89)
-                    print("Max_time for training elapsed {:.2f} hours, so stopping".format(params['max_time']))
-                    break
+                    if optimizer.param_groups[0]['lr'] < params['min_lr']:
+                        print("\n!! LR SMALLER OR EQUAL TO MIN LR THRESHOLD.")
+                        break
+                        
+                    # Stop training after params['max_time'] hours
+                    if time.time()-start0 > params['max_time']*3600:
+                        print('-' * 89)
+                        print("Max_time for training elapsed {:.2f} hours, so stopping".format(params['max_time']))
+                        break
+        
+        except KeyboardInterrupt:
+            print('-' * 89)
+            print('Exiting from training early because of KeyboardInterrupt')
     
-    except KeyboardInterrupt:
-        print('-' * 89)
-        print('Exiting from training early because of KeyboardInterrupt')
+    else:
+        # loading the trained ckpt
+        fpath = './out/SBMs_sparse_LapPE_LN/checkpoints/GraphTransformer_SBM_CLUSTER_GPU1_14h26m00s_on_Jul_08_2021/RUN_/epoch_147.pkl'
+        # fpath = './out/SBMs_sparse_LapPE_LN/checkpoints/GraphTransformer_SBM_PATTERN_GPU1_14h22m42s_on_Jul_08_2021/RUN_/epoch_238.pkl'
+        ckpt = torch.load(fpath)
+        model.load_state_dict(ckpt)
+        epoch = -1
     
-    
+
     _, test_acc = evaluate_network(model, device, test_loader, epoch)
     _, train_acc = evaluate_network(model, device, train_loader, epoch)
     print("Test Accuracy: {:.4f}".format(test_acc))
     print("Train Accuracy: {:.4f}".format(train_acc))
     print("Convergence Time (Epochs): {:.4f}".format(epoch))
     print("TOTAL TIME TAKEN: {:.4f}s".format(time.time()-start0))
-    print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
+    if not params['eval_only']:
+        print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
 
     writer.close()
 
@@ -275,6 +285,8 @@ def main():
     parser.add_argument('--pos_enc_dim', help="Please give a value for pos_enc_dim")
     parser.add_argument('--lap_pos_enc', help="Please give a value for lap_pos_enc")
     parser.add_argument('--wl_pos_enc', help="Please give a value for wl_pos_enc")
+    parser.add_argument('--eval_only', action='store_true', help="whether evaluate only")
+
     args = parser.parse_args()
     with open(args.config) as f:
         config = json.load(f)
@@ -300,6 +312,7 @@ def main():
         out_dir = config['out_dir']
     # parameters
     params = config['params']
+    params['eval_only'] = args.eval_only
     if args.seed is not None:
         params['seed'] = int(args.seed)
     if args.epochs is not None:
