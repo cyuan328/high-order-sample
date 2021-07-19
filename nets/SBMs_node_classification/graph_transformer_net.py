@@ -72,7 +72,7 @@ class GraphTransformerNet(nn.Module):
         # self.K = nn.Linear(hidden_dim, hidden_dim, bias=True)
         # self.V = nn.Linear(hidden_dim, hidden_dim, bias=True)
 
-    def forward(self, g, h, e, h_lap_pos_enc=None, h_wl_pos_enc=None, compute_dis=True):
+    def forward(self, g, h, e, h_lap_pos_enc=None, h_wl_pos_enc=None, compute_dis=False):
 
         # input embedding
         h = self.embedding_h(h)
